@@ -26,4 +26,9 @@ public class Human extends KtbMember {
     public int getAge() { return this.age; }
     public Gender getGender() { return this.gender; }
 
+    @Override
+    public String toString() {
+        return super.getNickName() + "(" + name + ")";
+    }
+
 }

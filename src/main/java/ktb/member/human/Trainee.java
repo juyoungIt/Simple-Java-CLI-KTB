@@ -46,4 +46,14 @@ public class Trainee extends Human {
     public void releaseStress(int stress) { this.stress -= stress; }
     public void resolveIssue(int issue) { this.issue -= issue; }
 
+    @Override
+    public String toString() {
+        return super.toString()
+                + " - "
+                + course.toString()
+                + " - 지식: " + knowledge
+                + " - 스트레스: " + stress
+                + " - 이슈: " + issue;
+    }
+
 }

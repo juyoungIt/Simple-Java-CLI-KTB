@@ -21,7 +21,7 @@ public class Instructor extends Human {
      * @param trainees  : 강의에 참여한 학생들
      * @param knowledge : 강의에서 전달할 지식의 양
      */
-    public void delieverLecture(List<Trainee> trainees, int knowledge) {
+    public void deliverLecture(List<Trainee> trainees, int knowledge) {
         trainees.forEach(t -> t.addKnowledge(knowledge));
     }
 
@@ -35,5 +35,10 @@ public class Instructor extends Human {
 
     public Course getCourse() { return this.course; }
     public TeachingStyle getTeachingStyle() { return this.teachingStyle; }
+
+    @Override
+    public String toString() {
+        return super.toString() + " - " + course.toString();
+    }
 
 }
