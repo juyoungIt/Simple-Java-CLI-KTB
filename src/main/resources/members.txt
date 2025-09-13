@@ -7,6 +7,9 @@ jay.park 프로도 40 MALE AI PRACTICE_BASED
 tami.kim 죠르디 25 FEMALE ATTENDANCE
 diana.kim 네오 25 FEMALE PLATFORM
 void.yeon 제이지 30 MALE FACILITY
+2
+helper.ryan CHAT_GPT
+helper.choon CLAUDE
 6
 howard.ha 라이언 28 MALE CLOUD_NATIVE 10 5 2
 ryan.park 어피치 27 FEMALE CLOUD_NATIVE 20 7 3

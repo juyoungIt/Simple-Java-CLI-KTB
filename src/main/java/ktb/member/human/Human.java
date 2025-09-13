@@ -3,7 +3,11 @@ package ktb.member.human;
 import ktb.member.KtbMember;
 import ktb.properties.Gender;
 
+import static ktb.message.Message.*;
+import static ktb.properties.Gender.*;
+
 public class Human extends KtbMember {
+
     private final String name;
     private final int age;
     private final Gender gender;
@@ -15,11 +19,15 @@ public class Human extends KtbMember {
         this.gender = gender;
     }
 
-    /**
-     * KTB의 구성원들은 인사를 잘합니다.
-     */
-    public void greeting() {
-        System.out.printf("안녕하세요. %s(%s) 입니다.\n", super.getNickName(), name);
+    public String greeting() {
+        return String.format(
+                HUMAN_GREETING_TEMPLATE.getMessage(),
+                super.getNickname(),
+                super.getNickname(),
+                this.name,
+                this.age,
+                gender.equals(MALE) ? "남자" : "여자"
+        );
     }
 
     public String getName() { return this.name; }
@@ -28,7 +36,7 @@ public class Human extends KtbMember {
 
     @Override
     public String toString() {
-        return super.getNickName() + "(" + name + ")";
+        return super.getNickname() + "(" + name + ")";
     }
 
 }

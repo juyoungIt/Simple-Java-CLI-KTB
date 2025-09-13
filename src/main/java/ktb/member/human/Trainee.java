@@ -1,5 +1,6 @@
 package ktb.member.human;
 
+import ktb.member.bot.Bot;
 import ktb.properties.Course;
 import ktb.properties.Gender;
 
@@ -17,25 +18,16 @@ public class Trainee extends Human {
         this.issue = issue;
     }
 
-    /**
-     * 현재 자신의 상태를 정리하여 출력합니다.
-     */
-    public void report() {
-        System.out.println("*****************");
-        this.greeting();
-        System.out.println("현재 저의 상태는 다음과 같습니다");
-        System.out.printf("지식 : %d\n", knowledge);
-        System.out.printf("스트레스 : %d\n", stress);
-        System.out.printf("이슈 : %d\n", issue);
-        System.out.println("*****************");
+    public void requestCounsel(Instructor instructor) {
+        instructor.counsel(this);
     }
 
-    public boolean requestCounsel(Instructor instructor) {
-        return true;
+    public void requestHelp(Staff staff) {
+        staff.help(this);
     }
 
-    public boolean requestHelp(Staff staff) {
-        return true;
+    public void requestTalk(Bot bot) {
+        bot.talk(this);
     }
 
     public Course getCourse() { return this.course; }
@@ -43,8 +35,8 @@ public class Trainee extends Human {
     public int getStress() { return this.stress; }
     public int getIssue() { return this.issue; }
     public void addKnowledge(int knowledge) { this.knowledge += knowledge; }
-    public void releaseStress(int stress) { this.stress -= stress; }
-    public void resolveIssue(int issue) { this.issue -= issue; }
+    public void releaseStress(int stress) { this.stress = Math.max(0, this.stress - stress); }
+    public void resolveIssue(int issue) { this.issue = Math.max(0, this.issue - issue); }
 
     @Override
     public String toString() {

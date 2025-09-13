@@ -1,48 +1,56 @@
 package ktb;
 
 import ktb.member.KtbMember;
+import ktb.member.bot.Bot;
+import ktb.member.human.Human;
 import ktb.member.human.Instructor;
 import ktb.member.human.Staff;
 import ktb.member.human.Trainee;
-import ktb.properties.Course;
-import ktb.properties.Gender;
-import ktb.properties.StaffRole;
-import ktb.properties.TeachingStyle;
+import ktb.message.MemberStatus;
+import ktb.properties.*;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/**
- * KTB 교육장을 의미하는 클래스
- * -> 여러 개 생성되면 안되기 때문에 Singleton Pattern을 적용함
- */
+import static ktb.message.Message.*;
+
 public class KtbCenter {
 
+    private static final KtbCenter ktbCenter = new KtbCenter();
     private final Map<String, KtbMember> members;
     private final Map<String, KtbMember> entered;
     private final Random random;
 
     // For Singleton Pattern
     private KtbCenter() {
-        this.members = new HashMap<>();
-        this.entered = new HashMap<>();
+        // KtbCenter 에 해당 동시접근은 없지만, 싱글톤이라는 점에서 내부 자료구조를 ConcurrentHashMap을 사용하여 동시성 문제 대비
+        this.members = new ConcurrentHashMap<>();
+        this.entered = new ConcurrentHashMap<>();
         random = new Random();
         loadKtbMembers();
     }
 
-    public static KtbCenter getInstance() { return new KtbCenter(); }
+    public static KtbCenter getInstance() { return ktbCenter; }
 
     public void checkIn(String nickname) {
         if (members.containsKey(nickname)) {
             if (!entered.containsKey(nickname)) {
                 this.entered.put(nickname, members.get(nickname));
+                if (members.get(nickname) instanceof Human) {
+                    System.out.println(((Human) members.get(nickname)).greeting());
+                }
+                System.out.println(members.get(nickname).explain());
             } else {
-                System.out.printf("%s는 이미 입실했습니다.\n", nickname);
+                System.out.printf(ALREADY_ENTERED_TEMPLATE.getMessage(), nickname);
             }
         } else {
-            throw new IllegalArgumentException(String.format("%s는 KTB의 구성원이 아닙니다.", nickname));
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_KTB_MEMBER.getMessage(), nickname));
         }
     }
 
@@ -51,10 +59,10 @@ public class KtbCenter {
             if (entered.containsKey(nickname)) {
                 this.entered.remove(nickname);
             } else {
-                System.out.printf("%s는 입실 상태가 아닙니다.\n", nickname);
+                System.out.printf(NOT_ENTERED_STATUS_TEMPLATE.getMessage(), nickname);
             }
         } else {
-            throw new IllegalArgumentException(String.format("%s는 KTB의 구성원이 아닙니다.", nickname));
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_EXIST_EVENT.getMessage(), nickname));
         }
     }
 
@@ -67,70 +75,281 @@ public class KtbCenter {
                         .map(t -> (Trainee) t)
                         .toList();
                 if (trainees.isEmpty()) {
-                    throw new IllegalStateException("해당 강사의 강의를 수강할 교육생이 없어 강의를 열 수 없습니다.");
+                    throw new IllegalStateException(EXCEPTION_NO_TRAINEES_FOR_LECTURE.getMessage());
                 }
                 int knowledge = random.nextInt(20) + 1;
-                System.out.printf("--> 강사 %s 의 지식 %d 강의가 오픈되었습니다.\n", instructor, knowledge);
+                System.out.printf(LECTURE_OPEN_TEMPLATE.getMessage(), instructor, knowledge);
                 instructor.deliverLecture(trainees, knowledge);
-                System.out.printf("--> %d 명의 수강생의 지식이 %d만큼 올랐습니다.\n", trainees.size(), knowledge);
+                System.out.printf(LECTURE_RESULT_TEMPLATE.getMessage(), trainees.size(), knowledge);
             } else {
-                throw new IllegalArgumentException(String.format("%s는 강사가 아니므로 강의를 진행할 수 없습니다.", nickname));
+                throw new IllegalArgumentException(String.format(EXCEPTION_NOT_INSTRUCTOR_FOR_LECTURE.getMessage(), nickname));
             }
         } else {
-            throw new IllegalArgumentException(String.format("%s는 KTB의 구성원이 아닙니다.", nickname));
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_KTB_MEMBER.getMessage(), nickname));
         }
+    }
+
+    public void openCounsel(String nickname) {
+        if (members.containsKey(nickname)) {
+            if (members.get(nickname) instanceof Instructor instructor) {
+                if (!entered.containsKey(nickname)) {
+                    throw new IllegalArgumentException(
+                            String.format(EXCEPTION_INSTRUCTOR_NOT_HERE.getMessage(), nickname)
+                    );
+                }
+                List<Trainee> trainees = entered.values().stream()
+                        .filter(t -> t instanceof Trainee)
+                        .map(t -> (Trainee) t)
+                        .toList();
+                ExecutorService pool = Executors.newFixedThreadPool(trainees.size());
+                CountDownLatch startGate = new CountDownLatch(1);
+                CountDownLatch endGate = new CountDownLatch(trainees.size());
+                try {
+                    trainees.forEach(t -> {
+                        pool.submit(() -> {
+                            try {
+                                startGate.await();
+                                t.requestCounsel(instructor);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            } finally {
+                                endGate.countDown();
+                            }
+                        });
+                    });
+                    startGate.countDown();
+                    System.out.printf(START_COUNSEL_TEMPLATE.getMessage(), nickname);
+                    endGate.await();
+                    System.out.printf(FINISH_COUNSEL_TEMPLATE.getMessage(), nickname);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    pool.shutdown();
+                }
+            } else {
+                throw new IllegalArgumentException(
+                        String.format(EXCEPTION_NOT_INSTRUCTOR_FOR_COUNSEL.getMessage(), nickname)
+                );
+            }
+        } else {
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_KTB_MEMBER.getMessage(), nickname));
+        }
+    }
+
+    public void openHelpSession(String nickname) {
+        if (members.containsKey(nickname)) {
+            if (members.get(nickname) instanceof Staff staff) {
+                if (!entered.containsKey(nickname)) {
+                    throw new IllegalArgumentException(String.format(NOT_ENTERED_STATUS_TEMPLATE.getMessage(), nickname));
+                }
+                List<Trainee> trainees = entered.values().stream()
+                        .filter(t -> t instanceof Trainee)
+                        .map(t -> (Trainee) t)
+                        .toList();
+                ExecutorService pool = Executors.newFixedThreadPool(trainees.size());
+                CountDownLatch startGate = new CountDownLatch(1);
+                CountDownLatch endGate = new CountDownLatch(trainees.size());
+                try {
+                    trainees.forEach(t -> {
+                        pool.submit(() -> {
+                            try {
+                                startGate.await();
+                                t.requestHelp(staff);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            } finally {
+                                endGate.countDown();
+                            }
+                        });
+                    });
+                    startGate.countDown();
+                    System.out.printf(START_HELP_SESSION_TEMPLATE.getMessage(), nickname);
+                    endGate.await();
+                    System.out.printf(FINISH_HELP_SESSION_TEMPLATE.getMessage(), nickname);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    pool.shutdown();
+                }
+            } else {
+                throw new IllegalArgumentException(String.format(EXCEPTION_NOT_STAFF_FOR_HELP.getMessage(), nickname));
+            }
+        } else {
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_KTB_MEMBER.getMessage(), nickname));
+        }
+    }
+
+    public void openTalkSession(String nickname) {
+        if (members.containsKey(nickname)) {
+            if (members.get(nickname) instanceof Bot bot) {
+                if (!entered.containsKey(nickname)) {
+                    throw new IllegalArgumentException(String.format(NOT_ACTIVATED_STATUS_TEMPLATE.getMessage(), nickname));
+                }
+                List<Trainee> trainees = entered.values().stream()
+                        .filter(t -> t instanceof Trainee)
+                        .map(t -> (Trainee) t)
+                        .toList();
+                ExecutorService pool = Executors.newFixedThreadPool(trainees.size());
+                CountDownLatch startGate = new CountDownLatch(1);
+                CountDownLatch endGate = new CountDownLatch(trainees.size());
+                try {
+                    trainees.forEach(t -> {
+                        pool.submit(() -> {
+                            try {
+                                startGate.await();
+                                t.requestTalk(bot);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            } finally {
+                                endGate.countDown();
+                            }
+                        });
+                    });
+                    startGate.countDown();
+                    System.out.printf(START_TALK_SESSION_TEMPLATE.getMessage(), nickname);
+                    endGate.await();
+                    System.out.printf(FINISH_TALK_SESSION_TEMPLATE.getMessage(), nickname, bot.getTalkCount());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    pool.shutdown();
+                }
+            } else {
+                throw new IllegalArgumentException(String.format(EXCEPTION_NOT_BOT_FOR_TALK.getMessage(), nickname));
+            }
+        } else {
+            throw new IllegalArgumentException(String.format(EXCEPTION_NOT_KTB_MEMBER.getMessage(), nickname));
+        }
+    }
+
+    public MemberStatus getInstructorStatus(boolean isEntered) {
+        Map<String, KtbMember> members = isEntered ? entered : this.members;
+        List<Instructor> instructors = members.values().stream()
+                .filter(e -> e instanceof Instructor)
+                .map(e -> (Instructor) e)
+                .toList();
+        StringBuilder instructorInfos = new StringBuilder();
+        for (Instructor instructor : instructors) {
+            instructorInfos.append(
+                    String.format(INSTRUCTOR_INFO_TEMPLATE.getMessage(),
+                            instructor.getNickname(),
+                            instructor.getCourse().toString()
+                    )
+            ).append("\n");
+        }
+        return new MemberStatus(instructors.size(), instructorInfos.toString());
+    }
+
+    public MemberStatus getStaffStatus(boolean isEntered) {
+        Map<String, KtbMember> members = isEntered ? entered : this.members;
+        List<Staff> staffs = members.values().stream()
+                .filter(e -> e instanceof Staff)
+                .map(e -> (Staff) e)
+                .toList();
+        StringBuilder staffInfos = new StringBuilder();
+        for (Staff staff : staffs) {
+            staffInfos.append(
+                    String.format(STAFF_INFO_TEMPLATE.getMessage(),
+                            staff.getNickname(),
+                            staff.getRole().toString()
+                    )
+            ).append("\n");
+        }
+        return new MemberStatus(staffs.size(), staffInfos.toString());
+    }
+
+    public MemberStatus getBotStatus(boolean isEntered) {
+        Map<String, KtbMember> members = isEntered ? entered : this.members;
+        List<Bot> bots = members.values().stream()
+                .filter(e -> e instanceof Bot)
+                .map(e -> (Bot) e)
+                .toList();
+        StringBuilder botInfos = new StringBuilder();
+        for (Bot bot : bots) {
+            botInfos.append(
+                    String.format(BOT_INFO_TEMPLATE.getMessage(),
+                            bot.getNickname(),
+                            bot.getAiModel().toString()
+                    )
+            ).append("\n");
+        }
+        return new MemberStatus(bots.size(), botInfos.toString());
+    }
+
+    public MemberStatus getTraineeStatus(boolean isEntered) {
+        Map<String, KtbMember> members = isEntered ? entered : this.members;
+        List<Trainee> trainees = members.values().stream()
+                .filter(e -> e instanceof Trainee)
+                .map(e -> (Trainee) e)
+                .toList();
+        StringBuilder traineeInfos = new StringBuilder();
+        for (Trainee trainee : trainees) {
+            traineeInfos.append(
+                    String.format(TRAINEE_INFO_TEMPLATE.getMessage(),
+                            trainee.getNickname(),
+                            trainee.getCourse().toString()
+                    )
+            ).append("\n");
+        }
+        return new MemberStatus(trainees.size(), traineeInfos.toString());
     }
 
     public String getMemberStatus() {
-        StringBuilder sb = new StringBuilder();
-        List<Instructor> instructors = new ArrayList<>();
-        List<Staff> staffs = new ArrayList<>();
-        List<Trainee> trainees = new ArrayList<>();
-        for (KtbMember member : members.values()) {
-            if (member instanceof Instructor) {
-                instructors.add((Instructor) member);
-            } else if (member instanceof Staff) {
-                staffs.add((Staff) member);
-            } else if (member instanceof Trainee) {
-                trainees.add((Trainee) member);
-            } else {
-                throw new IllegalStateException("존재할 수 없는 유형의 KTB Member 입니다");
-            }
-        }
-        sb.append("[ KTB 구성원 현황 ]\n\n");
-        sb.append(String.format("강 사(%d명)\n", instructors.size()));
-        instructors.forEach(i -> sb.append(i.toString()).append("\n"));
-        sb.append(String.format("\n운영진(%d명)\n", staffs.size()));
-        staffs.forEach(s -> sb.append(s.toString()).append("\n"));
-        sb.append(String.format("\n교육생(%d명)\n", trainees.size()));
-        trainees.forEach(t -> sb.append(t.toString()).append("\n"));
-        return sb.toString();
+        MemberStatus instructorStatus = getInstructorStatus(false);
+        MemberStatus staffStatus = getStaffStatus(false);
+        MemberStatus botStatus = getBotStatus(false);
+        MemberStatus traineeStatus = getTraineeStatus(false);
+        return String.format(
+                KTB_MEMBERS_HEADER.getMessage()
+                        + KTB_INSTRUCTOR_TEMPLATE.getMessage()
+                        + KTB_STAFF_TEMPLATE.getMessage()
+                        + KTB_BOT_TEMPLATE.getMessage()
+                        + KTB_TRAINEE_TEMPLATE.getMessage(),
+                instructorStatus.getSize(),
+                "닉네임", "참여트랙",
+                instructorStatus.getStatus(),
+                staffStatus.getSize(),
+                "닉네임", "담당역할",
+                staffStatus.getStatus(),
+                botStatus.getSize(),
+                "닉네임", "AI모델",
+                botStatus.getStatus(),
+                traineeStatus.getSize(),
+                "닉네임", "참여트랙",
+                traineeStatus.getStatus()
+        );
     }
 
     public String getEnteredStatus() {
-        StringBuilder sb = new StringBuilder();
-        List<Instructor> instructors = new ArrayList<>();
-        List<Staff> staffs = new ArrayList<>();
-        List<Trainee> trainees = new ArrayList<>();
-        for (KtbMember member : entered.values()) {
-            if (member instanceof Instructor) {
-                instructors.add((Instructor) member);
-            } else if (member instanceof Staff) {
-                staffs.add((Staff) member);
-            } else if (member instanceof Trainee) {
-                trainees.add((Trainee) member);
-            } else {
-                throw new IllegalStateException("존재할 수 없는 유형의 KTB Member 입니다");
-            }
-        }
-        sb.append("[ KTB 교육장 입실 현황 ]\n\n");
-        sb.append(String.format("강 사(%d명)\n", instructors.size()));
-        instructors.forEach(i -> sb.append(i.toString()).append("\n"));
-        sb.append(String.format("\n운영진(%d명)\n", staffs.size()));
-        staffs.forEach(s -> sb.append(s.toString()).append("\n"));
-        sb.append(String.format("\n교육생(%d명)\n", trainees.size()));
-        trainees.forEach(t -> sb.append(t.toString()).append("\n"));
-        return sb.toString();
+        MemberStatus instructorStatus = getInstructorStatus(true);
+        MemberStatus staffStatus = getStaffStatus(true);
+        MemberStatus botStatus = getBotStatus(true);
+        MemberStatus traineeStatus = getTraineeStatus(true);
+        return String.format(
+                KTB_ENTERED_HEADER.getMessage()
+                        + KTB_INSTRUCTOR_TEMPLATE.getMessage()
+                        + KTB_STAFF_TEMPLATE.getMessage()
+                        + KTB_BOT_TEMPLATE.getMessage()
+                        + KTB_TRAINEE_TEMPLATE.getMessage(),
+                instructorStatus.getSize(),
+                "닉네임", "참여트랙",
+                instructorStatus.getStatus(),
+                staffStatus.getSize(),
+                "닉네임", "담당역할",
+                staffStatus.getStatus(),
+                botStatus.getSize(),
+                "닉네임", "AI모델",
+                botStatus.getStatus(),
+                traineeStatus.getSize(),
+                "닉네임", "참여트랙",
+                traineeStatus.getStatus()
+        );
+    }
+
+    public void checkInAllMembers() {
+        members.values().stream()
+                .filter(m -> !entered.containsKey(m.getNickname()))
+                .forEach(m -> entered.put(m.getNickname(), m));
     }
 
     private void loadKtbMembers() {
@@ -159,6 +378,14 @@ public class KtbCenter {
                 StaffRole role = StaffRole.valueOf(row[4]);
                 members.put(nickname, new Staff(nickname, name, age, gender, role));
             }
+            // Bot 정보 로딩
+            n = Integer.parseInt(br.readLine());
+            for (int i=0 ; i<n ; i++) {
+                row = br.readLine().split(" ");
+                String nickname = row[0];
+                AiModel aiModel = AiModel.valueOf(row[1]);
+                members.put(nickname, new Bot(nickname, aiModel));
+            }
             // 교육생 정보 로딩
             n = Integer.parseInt(br.readLine());
             for (int i=0 ; i<n ; i++) {
@@ -174,7 +401,7 @@ public class KtbCenter {
                 members.put(nickname, new Trainee(nickname, name, age, gender, course, knowledge, stress, issue));
             }
         } catch (IOException e) {
-            System.out.println("KTB 회원정보 로딩 실패!!!");
+            System.out.println(EXCEPTION_FAILED_TO_LOAD_KTB_MEMBERS.getMessage());
             System.out.println(e.getMessage());
             System.out.println(Arrays.toString(e.getStackTrace()));
         }
